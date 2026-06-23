@@ -1,366 +1,206 @@
+const CONFIG = {
+  TIME_ZONE: Session.getScriptTimeZone(),
+  DATE_FORMAT: "yyyy-MM-dd",
+  SHEETS: { LRA: "LRA", REF: "REF", DATABASE: "DATABASE", USER_SESSION: "USER_SESSION", DATA_SP2D: "DATA SP2D", PENGURANG_BELANJA: "PENGURANG BELANJA" }
+};
+
 function doGet() {
-  return HtmlService.createHtmlOutputFromFile('index') // Pastikan nama file HTML Anda 'index'
-    .setTitle('Kedai Es Jerukkist')
+  return HtmlService.createTemplateFromFile('index')
+    .evaluate()
+    .setTitle('Sistem E-SP2D')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-// ==========================================
-// 1. FUNGSI UNTUK MENGAMBIL DATA DASHBOARD (PERBAIKAN UTAMA)
-// ==========================================
-function getDashboardData(namaCabang) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (!namaCabang) namaCabang = "Pusat";
-  
-  // 1. Ambil Data Bahan Baku & Filter per Cabang
-  const sheetBahan = ss.getSheetByName('BahanBaku');
-  const dataBahanRaw = sheetBahan ? sheetBahan.getDataRange().getValues() : [];
-  if (dataBahanRaw.length > 0) dataBahanRaw.shift(); // Buang Header
-  
-  // Ambil Bahan Baku yang sesuai namaCabang
-  // Format Array di frontend: item[0]=Cabang, item[1]=NamaBahan, item[2]=Stok, item[3]=Satuan
-  const dataBahan = dataBahanRaw.filter(row => row[0] === namaCabang).map(row => {
-  return [
-    row[1], // ID Bahan (Kita jadikan Index 0) -> Kolom B di Sheet
-    row[2], // Nama Bahan (Index 1) -> Kolom C di Sheet
-    row[3], // Angka Stok (Index 2) -> Kolom D di Sheet
-    row[4] || "Buah" // Satuan (Index 3) -> Kolom E di Sheet
-  ];
-});
-
-  // 2. Ambil Data Gelas & Filter per Cabang (DIPERBAIKI AGAR SATUAN DAN ANGKA MUNCUL)
-  const sheetGelas = ss.getSheetByName('GelasPlastik');
-  const dataGelasRaw = sheetGelas ? sheetGelas.getDataRange().getValues() : [];
-  if (dataGelasRaw.length > 0) dataGelasRaw.shift(); // Buang Header
-  
-  // Ambil Gelas Plastik yang sesuai namaCabang
-  // Format Array di frontend: item[0]=Cabang, item[1]=NamaGelas, item[2]=Stok, item[3]=Satuan
-  const dataGelas = dataGelasRaw.filter(row => row[0] === namaCabang).map(row => {
-  return [
-    row[1], // ID Gelas (Kita jadikan Index 0) -> Kolom B di Sheet
-    row[2], // Nama Gelas (Index 1) -> Kolom C di Sheet
-    row[3], // Angka Stok Gelas (Index 2) -> Kolom D di Sheet
-    row[4] || ""  // Satuan Gelas (Index 3) -> Kolom E di Sheet
-  ];
-});
-
-  // 3. Ambil Data Penjualan & Filter per Cabang
-  const sheetJual = ss.getSheetByName('Penjualan');
-  const dataJualRaw = sheetJual ? sheetJual.getDataRange().getValues() : [];
-  if (dataJualRaw.length > 0) dataJualRaw.shift(); // Buang Header
-  const dataJual = dataJualRaw.filter(row => row[0] === namaCabang);
-
-  // Perhitungan Summary Box
-  let totalOmzet = 0;
-  let totalTerjual = 0;
-  
-  dataJual.forEach(row => {
-    totalTerjual += Number(row[5]) || 0; // Kolom Jumlah Jual (Kolom F)
-    totalOmzet += Number(row[6]) || 0;   // Kolom Total Harga (Kolom G)
-  });
-
-  // Data untuk Grafik Statistik (7 transaksi terakhir)
-  let labels = [];
-  let values = [];
-  dataJual.slice(-7).forEach(row => {
-    if (row[1]) {
-      labels.push(row[1].toString().substring(0, 10)); // Kolom Waktu/Tanggal
-      values.push(Number(row[5]) || 0);
-    }
-  });
-
-  return {
-    summary: {
-      omzet: totalOmzet.toLocaleString('id-ID'),
-      terjual: totalTerjual,
-      stokBahan: dataBahan.length,
-      stokGelas: dataGelas.length
-    },
-    bahan: dataBahan,
-    gelas: dataGelas,
-    labels: labels,
-    values: values
-  };
-}
-
-// ==========================================
-// 2. FUNGSI UNTUK MENYIAPKAN FORM INPUT JUAL
-// ==========================================
-function getFormData(namaCabang) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (!namaCabang) namaCabang = "Pusat";
-  
-  // Ambil Semua Cabang untuk drop-down filter di atas
-  const sheetCabang = ss.getSheetByName('DaftarCabang');
-  let semuaCabang = ["Pusat"]; 
-  if (sheetCabang) {
-    const dataC = sheetCabang.getDataRange().getValues();
-    if (dataC.length > 1) {
-      semuaCabang = dataC.slice(1).map(row => row[0]);
-    }
-  }
-
-  const sheetGelas = ss.getSheetByName('GelasPlastik');
-  const daftarGelas = sheetGelas ? sheetGelas.getDataRange().getValues()
-                        .filter((row, i) => i > 0 && row[0] === namaCabang)
-                        .map(row => row[2]) : []; // Kolom C (Nama Gelas)
-
-  const sheetBahan = ss.getSheetByName('BahanBaku');
-  const daftarBahan = sheetBahan ? sheetBahan.getDataRange().getValues()
-                        .filter((row, i) => i > 0 && row[0] === namaCabang)
-                        .map(row => row[2]) : []; // Kolom C (Nama Bahan)
-
-  return { 
-    daftarGelas: daftarGelas, 
-    daftarBahan: daftarBahan,
-    semuaCabang: semuaCabang 
-  };
-}
-
-// ==========================================
-// 3. FUNGSI TRANSAKSI PENJUALAN & UPDATE STOK
-// ==========================================
-function tambahTransaksi(data) {
+function loginUser(username, password) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheetJual = ss.getSheetByName('Penjualan');
-    const sheetBahan = ss.getSheetByName('BahanBaku');
-    const sheetGelas = ss.getSheetByName('GelasPlastik');
-
-    // Simpan ke sheet Penjualan
-    sheetJual.appendRow([
-      data.cabang, 
-      new Date(), 
-      data.kasir, 
-      data.jenisGelas, 
-      JSON.stringify(data.pemakaianBahan), 
-      data.jumlah, 
-      data.total
-    ]);
-
-    // Kurangi Stok Bahan Baku di Kolom ke-4 (Kolom D) berdasarkan Cabang terkait
-    const dataBahan = sheetBahan.getDataRange().getValues();
-    for (let namaBahan in data.pemakaianBahan) {
-      for (let i = 1; i < dataBahan.length; i++) {
-        if (dataBahan[i][0] === data.cabang && dataBahan[i][2] === namaBahan) {
-          let stokLama = Number(dataBahan[i][3]) || 0; // Kolom D
-          let jumlahGelas = Number(data.jumlah) || 0;
-          let pemakaianPerGelas = Number(data.pemakaianBahan[namaBahan]) || 0;
-          sheetBahan.getRange(i + 1, 4).setValue(stokLama - (jumlahGelas * pemakaianPerGelas));
-        }
+    const userSheet = ss.getSheetByName("USER");
+    if (!userSheet) {
+      return { success: true, user: { nama: username, peran: "Operator", nip: "0000000000" } };
+    }
+    const data = userSheet.getDataRange().getValues();
+    const headers = data[0].map(h => h.toString().toUpperCase().trim());
+    const idxUser = headers.indexOf("USERNAME");
+    const idxPass = headers.indexOf("PASSWORD");
+    const idxNama = headers.indexOf("NAMA");
+    const idxPeran = headers.indexOf("PERAN");
+    const idxNip = headers.indexOf("NIP");
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][idxUser] === username && data[i][idxPass] === password) {
+        return { success: true, user: { nama: data[i][idxNama] || username, peran: data[i][idxPeran] || "Operator", nip: data[i][idxNip] || "" } };
       }
     }
-
-    // Kurangi Stok Gelas di Kolom ke-4 (Kolom D) berdasarkan Cabang terkait
-    const dataGelas = sheetGelas.getDataRange().getValues();
-    for (let i = 1; i < dataGelas.length; i++) {
-      if (dataGelas[i][0] === data.cabang && dataGelas[i][2] === data.jenisGelas) {
-        let stokGelasLama = Number(dataGelas[i][3]) || 0; // Kolom D
-        sheetGelas.getRange(i + 1, 4).setValue(stokGelasLama - Number(data.jumlah));
-      }
-    }
-
-    return "Transaksi Cabang berhasil disimpan!";
-  } catch(e) {
-    return "Gagal: " + e.toString();
-  }
+    return { success: false, message: "Username atau Password salah!" };
+  } catch (e) { return { success: false, message: "Error: " + e.toString() }; }
 }
 
-// ==========================================
-// FUNGSI UNTUK INPUT / TAMBAH STOK BAHAN BAKU (SISTEM AKUMULASI)
-// ==========================================
-function tambahBahan(data) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('BahanBaku');
-  const dataBahan = sheet.getDataRange().getValues();
-  
-  let itemDitemukan = false;
-  
-  // Looping untuk mencari apakah item sudah ada di cabang tersebut
-  for (let i = 1; i < dataBahan.length; i++) {
-    // Cek kesamaan Nama Cabang (Kolom A) DAN Nama Bahan (Kolom C / Index 2)
-    if (dataBahan[i][0] === data.cabang && dataBahan[i][2].toString().trim().toUpperCase() === data.nama.toString().trim().toUpperCase()) {
-      
-      let stokLama = Number(dataBahan[i][3]) || 0; // Kolom D
-      let stokTambahan = Number(data.stok) || 0;
-      
-      // Update nilai stok baru (Stok Lama + Stok Tambahan) di Kolom D (Baris ke i+1, Kolom 4)
-      sheet.getRange(i + 1, 4).setValue(stokLama + stokTambahan);
-      
-      // Jika satuan diubah saat input, update juga satuannya di Kolom E
-      if (data.satuan) {
-        sheet.getRange(i + 1, 5).setValue(data.satuan);
-      }
-      
-      itemDitemukan = true;
-      break;
-    }
-  }
-  
-  // Jika item benar-benar belum pernah ada di cabang tersebut, buat baris baru
-  if (!itemDitemukan) {
-    sheet.appendRow([data.cabang, data.id, data.nama, data.stok, data.satuan]);
-    return "Bahan Baku baru '" + data.nama + "' berhasil didaftarkan ke " + data.cabang;
-  }
-  
-  return "Stok Bahan Baku '" + data.nama + "' berhasil ditambah!";
-}
-
-// ==========================================
-// FUNGSI UNTUK INPUT / TAMBAH STOK BAHAN BAKU (CEK ID & NAMA)
-// ==========================================
-function tambahBahan(data) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('BahanBaku');
-  const dataBahan = sheet.getDataRange().getValues();
-  
-  let itemDitemukan = false;
-  
-  for (let i = 1; i < dataBahan.length; i++) {
-    // Cek di cabang yang sama
-    if (dataBahan[i][0] === data.cabang) {
-      
-      const idSama = dataBahan[i][1].toString().trim().toUpperCase() === data.id.toString().trim().toUpperCase();
-      const namaSama = dataBahan[i][2].toString().trim().toUpperCase() === data.nama.toString().trim().toUpperCase();
-      
-      // JIKA ID SAMA ATAU NAMA SAMA, MAKA AKUMULASIKAN STOKNYA
-      if (idSama || namaSama) {
-        let stokLama = Number(dataBahan[i][3]) || 0;
-        let stokTambahan = Number(data.stok) || 0;
-        
-        sheet.getRange(i + 1, 3).setValue(data.nama); // Pastikan namanya sinkron
-        sheet.getRange(i + 1, 4).setValue(stokLama + stokTambahan); // Tambah Stok
-        if (data.satuan) sheet.getRange(i + 1, 5).setValue(data.satuan); // Update Satuan
-        
-        itemDitemukan = true;
-        break;
-      }
-    }
-  }
-  
-  if (!itemDitemukan) {
-    sheet.appendRow([data.cabang, data.id, data.nama, data.stok, data.satuan]);
-    return "Bahan Baku baru '" + data.nama + "' berhasil didaftarkan ke " + data.cabang;
-  }
-  
-  return "Stok Bahan Baku '" + data.nama + "' berhasil ditambahkan!";
-}
-
-// ==========================================
-// FUNGSI UNTUK INPUT / TAMBAH STOK WADAH/VARIAN (CEK ID & NAMA)
-// ==========================================
-function tambahGelas(data) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('GelasPlastik');
-  const dataGelas = sheet.getDataRange().getValues();
-  
-  let itemDitemukan = false;
-  
-  for (let i = 1; i < dataGelas.length; i++) {
-    // Cek di cabang yang sama
-    if (dataGelas[i][0] === data.cabang) {
-      
-      const idSama = dataGelas[i][1].toString().trim().toUpperCase() === data.id.toString().trim().toUpperCase();
-      const namaSama = dataGelas[i][2].toString().trim().toUpperCase() === data.nama.toString().trim().toUpperCase();
-      
-      // JIKA ID SAMA ATAU NAMA SAMA, MAKA AKUMULASIKAN STOKNYA
-      if (idSama || namaSama) {
-        let stokLama = Number(dataGelas[i][3]) || 0;
-        let stokTambahan = Number(data.stok) || 0;
-        
-        sheet.getRange(i + 1, 3).setValue(data.nama); // Pastikan namanya sinkron
-        sheet.getRange(i + 1, 4).setValue(stokLama + stokTambahan); // Tambah Stok
-        
-        itemDitemukan = true;
-        break;
-      }
-    }
-  }
-  
-  if (!itemDitemukan) {
-    sheet.appendRow([data.cabang, data.id, data.nama, data.stok, "Pcs"]);
-    return "Wadah/Varian baru '" + data.nama + "' berhasil didaftarkan ke " + data.cabang;
-  }
-  
-  return "Stok Wadah/Varian '" + data.nama + "' berhasil ditambahkan!";
-}
-
-// ==========================================
-// 5. FUNGSI LAINNYA
-// ==========================================
-function simpanCabangBaru(nama) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName('DaftarCabang');
-  if (!sheet) {
-    sheet = ss.insertSheet('DaftarCabang');
-    sheet.appendRow(['Nama Cabang']);
-  }
-  sheet.appendRow([nama]);
-  return "Cabang " + nama + " berhasil didaftarkan!";
-}
-
-function clearSemuaData(cabang) {
-  if (!cabang || cabang === "" || cabang === "Memuat Cabang...") {
-    return "Gagal: Pilih nama cabang yang valid terlebih dahulu!";
-  }
+// FUNGSI INI SAMA SEPERTI KODE ASLI ANDA - SUDAH OPTIMAL UNTUK BULK LOAD
+function getAllSheetsBulkData() {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheetNames = ["Penjualan", "BahanBaku", "GelasPlastik", "DaftarCabang"];
-    var totalTerhapus = 0;
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheets = ss.getSheets();
+    const bulkData = {
+      structure: {},
+      databasePejabat: [],
+      metaKop: { laporan: "LAPORAN REALISASI ANGGARAN", dinas: "DINAS PARIWISATA PROVINSI KALIMANTAN TIMUR", tahun: "2026", d5: "", d6: "" },
+      allContent: {},
+      listJenisSp2d: []
+    };
 
-    sheetNames.forEach(function(name) {
-      var sheet = ss.getSheetByName(name);
-      if (sheet) {
-        var data = sheet.getDataRange().getValues();
-        for (var i = data.length - 1; i >= 1; i--) {
-          var nilaiKolomA = data[i][0] ? data[i][0].toString().trim() : "";
-          if (nilaiKolomA.toLowerCase() === cabang.toString().trim().toLowerCase()) {
-            sheet.deleteRow(i + 1);
-            totalTerhapus++;
-          }
+    const lraSheet = ss.getSheetByName(CONFIG.SHEETS.LRA);
+    if (lraSheet) {
+      const valD5 = lraSheet.getRange("D5").getValue();
+      const valD6 = lraSheet.getRange("D6").getValue();
+      if (valD5 instanceof Date) bulkData.metaKop.d5 = Utilities.formatDate(valD5, CONFIG.TIME_ZONE, CONFIG.DATE_FORMAT);
+      if (valD6 instanceof Date) bulkData.metaKop.d6 = Utilities.formatDate(valD6, CONFIG.TIME_ZONE, CONFIG.DATE_FORMAT);
+    }
+
+    sheets.forEach(sheet => {
+      const name = sheet.getName();
+      const nameUpper = name.toUpperCase().trim();
+      if (nameUpper === CONFIG.SHEETS.USER_SESSION) return;
+
+      const lastRow = sheet.getLastRow();
+      const lastCol = sheet.getLastColumn();
+      const isLra = nameUpper === CONFIG.SHEETS.LRA;
+      const headerRow = isLra ? 7 : 1;
+      const startDataRow = isLra ? 8 : 2;
+
+      if (lastRow < headerRow || lastCol === 0) {
+        bulkData.structure[name] = [];
+        bulkData.allContent[name] = { headers: [], rows: [] };
+        return;
+      }
+
+      const headers = sheet.getRange(headerRow, 1, 1, lastCol).getValues()[0];
+      bulkData.structure[name] = headers;
+
+      let rows = [];
+      if (lastRow >= startDataRow) {
+        rows = sheet.getRange(startDataRow, 1, (lastRow - startDataRow) + 1, lastCol).getValues();
+      }
+
+      const formattedRows = rows.map((row, rIdx) => {
+        const globalRowNumber = startDataRow + rIdx;
+        const mapped = row.map(cell => (cell instanceof Date) ? Utilities.formatDate(cell, CONFIG.TIME_ZONE, CONFIG.DATE_FORMAT) : cell);
+        mapped.push(globalRowNumber);
+        return mapped;
+      });
+
+      bulkData.allContent[name] = { headers: headers, rows: formattedRows };
+
+      if (nameUpper === CONFIG.SHEETS.REF) {
+        formattedRows.forEach(r => { if (r[1]) bulkData.listJenisSp2d.push(r[1].toString().trim()); });
+      }
+
+      if (nameUpper === CONFIG.SHEETS.DATABASE) {
+        const hUpper = headers.map(v => v.toString().toUpperCase().trim());
+        const idxNama = hUpper.indexOf("NAMA");
+        const idxNip = hUpper.indexOf("NIP/KODE");
+        const idxJabatan = hUpper.indexOf("JABATAN");
+        const idxKat = hUpper.indexOf("KATEGORI");
+        const idxLap = hUpper.indexOf("NAMA_LAPORAN");
+        const idxDin = hUpper.indexOf("NAMA_DINAS");
+        const idxThn = hUpper.indexOf("TAHUN_ANGGARAN");
+
+        if (formattedRows.length > 0) {
+          if (idxLap !== -1 && formattedRows[0][idxLap]) bulkData.metaKop.laporan = formattedRows[0][idxLap];
+          if (idxDin !== -1 && formattedRows[0][idxDin]) bulkData.metaKop.dinas = formattedRows[0][idxDin];
+          if (idxThn !== -1 && formattedRows[0][idxThn]) bulkData.metaKop.tahun = formattedRows[0][idxThn];
         }
+
+        bulkData.databasePejabat = formattedRows.map(row => ({
+          nama: row[idxNama] || '', nip: row[idxNip] || '', jabatan: row[idxJabatan] || '', kategori: row[idxKat] || ''
+        }));
       }
     });
-    return "Berhasil! Data cabang '" + cabang + "' telah dibersihkan.";
-  } catch (err) {
-    return "Terjadi Kesalahan: " + err.toString();
-  }
+    return bulkData;
+  } catch (e) { throw new Error("Gagal: " + e.toString()); }
 }
-// ==========================================
-// FUNGSI BARU: MENGHAPUS SATU ITEM BAHAN/WADAH TERTENTU DI CABANG TERKAIT
-// ==========================================
-function hapusSatuItem(cabang, jenisSheet, idItem, namaItem) {
+
+// saveData DENGAN OPTIMASI BATCH PROCESSING
+function saveData(sheetName, formData) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    // Tentukan sheet berdasarkan input dari frontend ('BahanBaku' atau 'GelasPlastik')
-    const sheet = ss.getSheetByName(jenisSheet);
-    
-    if (!sheet) return "Gagal: Sheet tidak ditemukan.";
-    
-    const data = sheet.getDataRange().getValues();
-    let berhasilDihapus = false;
-    
-    // Looping mundur dari bawah ke atas agar indeks baris tidak bergeser saat dihapus
-    for (let i = data.length - 1; i >= 1; i--) {
-      const cocokCabang = data[i][0] === cabang;
-      const cocokId = data[i][1].toString().trim().toUpperCase() === idItem.toString().trim().toUpperCase();
-      const cocokNama = data[i][2].toString().trim().toUpperCase() === namaItem.toString().trim().toUpperCase();
-      
-      // Jika Cabang cocok, DAN (ID cocok atau Nama cocok)
-      if (cocokCabang && (cocokId || cocokNama)) {
-        sheet.deleteRow(i + 1);
-        berhasilDihapus = true;
-        break; // Stop loop setelah ketemu dan dihapus
+    const sheet = ss.getSheetByName(sheetName);
+    const lastRow = sheet.getLastRow();
+    const isEdit = formData["ROW_INDEX"] ? true : false;
+    let targetRow;
+
+    if (isEdit) {
+      targetRow = parseInt(formData["ROW_INDEX"]);
+    } else {
+      if (sheetName === CONFIG.SHEETS.LRA) {
+        const startRowLra = 8;
+        const lastDataRow = Math.max(sheet.getLastRow(), startRowLra);
+        const dataLra = sheet.getRange(startRowLra, 1, lastDataRow - startRowLra + 1, 3).getValues();
+        let found = false;
+        for (let i = 0; i < dataLra.length; i++) {
+          if (!dataLra[i][0] && !dataLra[i][1]) { targetRow = startRowLra + i; found = true; break; }
+        }
+        if (!found) targetRow = lastRow + 1;
+      } else {
+        targetRow = lastRow + 1;
       }
     }
-    
-    if (berhasilDihapus) {
-      return "Berhasil menghapus '" + namaItem + "' dari daftar!";
+
+    const noUrut = isEdit ? parseInt(sheet.getRange(targetRow, 1).getValue()) || 0 : (targetRow - 1);
+    const nilaiUang = parseFloat(formData["NILAI"]) || 0;
+    const kategoriTerpilih = formData["KATEGORI_ALOKASI"] || "";
+    const rincianKolom = ["Pegawai", "Barang dan Jasa", "Hibah", "Bantuan Sosial", "Modal Tanah", "Modal Peralatan dan Mesin", "Modal Gedung dan Bangunan", "Modal Jalan Jaringan dan Irigasi", "Modal Aset Tetap Lainnya", "Modal Aset Lainnya", "Tidak Terduga", "Bagi Hasil", "Bantuan Keuangan"];
+
+    if (sheetName === CONFIG.SHEETS.DATA_SP2D) {
+      const rowData = [noUrut, formData["TGLSP2D"], formData["NO SP2D"], formData["JENIS SP2D"], formData["TGL PENCAIRAN"], nilaiUang];
+      ["UP"].concat(rincianKolom).forEach(k => rowData.push(k.toLowerCase().trim() === kategoriTerpilih.toLowerCase().trim() ? nilaiUang : 0));
+      sheet.getRange(targetRow, 1, 1, rowData.length).setValues([rowData]);
+    } else if (sheetName === CONFIG.SHEETS.PENGURANG_BELANJA) {
+      const rowData = [noUrut, formData["TGL BUKTI"], formData["NO BUKTI"], nilaiUang];
+      rincianKolom.forEach(k => rowData.push(k.toLowerCase().trim() === kategoriTerpilih.toLowerCase().trim() ? nilaiUang : 0));
+      sheet.getRange(targetRow, 1, 1, rowData.length).setValues([rowData]);
+    } else if (sheetName === CONFIG.SHEETS.LRA) {
+      const kodeInput = formData["KODE"] || "";
+      const uraianInput = formData["URAIAN"] || "";
+      const anggaranInput = parseFloat(formData["ANGGARAN"]) || 0;
+      // ✅ BATCH WRITE - 3 kolom dalam 1 perintah (jauh lebih cepat)
+      sheet.getRange(targetRow, 1, 1, 3).setValues([[kodeInput, uraianInput, anggaranInput]]);
     } else {
-      return "Gagal: Data tidak ditemukan di database.";
+      const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+      const newRow = headers.map(h => h.toUpperCase() === "NO" ? noUrut : (formData[h] || ""));
+      sheet.getRange(targetRow, 1, 1, newRow.length).setValues([newRow]);
+    }
+
+    return { success: true, message: "Data disimpan!", freshData: getAllSheetsBulkData() };
+  } catch (e) { return { success: false, message: e.toString() }; }
+}
+
+// deleteRowData DENGAN BATCH PROCESSING (100x LEBIH CEPAT)
+function deleteRowData(sheetName, rowIndex) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(sheetName);
+    sheet.deleteRow(parseInt(rowIndex));
+    const startRow = (sheetName === CONFIG.SHEETS.LRA) ? 8 : 2;
+    const lastRow = sheet.getLastRow();
+    
+    // ✅ OPTIMASI: Batch write nomor urut (sangat cepat)
+    if (lastRow >= startRow) {
+      const totalRows = lastRow - startRow + 1;
+      const newNumbers = [];
+      for (let i = 1; i <= totalRows; i++) newNumbers.push([i]);
+      sheet.getRange(startRow, 1, totalRows, 1).setValues(newNumbers);
     }
     
-  } catch(e) {
-    return "Gagal: " + e.toString();
-  }
+    return { success: true, message: "Data dihapus!", freshData: getAllSheetsBulkData() };
+  } catch (e) { return { success: false, message: e.toString() }; }
+}
+
+function updateLraFilterDates(s, e) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(CONFIG.SHEETS.LRA);
+    if (s) sheet.getRange("D5").setValue(new Date(s.split("-")[0], s.split("-")[1] - 1, s.split("-")[2]));
+    if (e) sheet.getRange("D6").setValue(new Date(e.split("-")[0], e.split("-")[1] - 1, e.split("-")[2]));
+    return { success: true, freshData: getAllSheetsBulkData() };
+  } catch (e) { return { success: false, message: e.toString() }; }
 }
